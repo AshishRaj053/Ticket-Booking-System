@@ -1,0 +1,14 @@
+
+// admin to use
+{
+    "name":"Ashish",
+    "email":"ashraj053@gmail.com",
+    "password":"123456"
+}
+
+// user to use
+{
+    "name":"Arjav",
+    "email":"arjav12@gmail.com",
+    "password":"123456"
+}
