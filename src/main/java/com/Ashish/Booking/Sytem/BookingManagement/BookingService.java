@@ -285,6 +285,7 @@ public class BookingService {
         return dto;
     }
 
+    @Transactional
     public void cancelBookingById(UUID id) {
         Booking booking = bookingRepo.findById(id).orElseThrow(()->new BookingNotFoundException("booking not found"));
         if(!booking.getUser().getId()

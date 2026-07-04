@@ -1,7 +1,10 @@
 package com.Ashish.Booking.Sytem.MovieManagement;
 
+import com.Ashish.Booking.Sytem.MovieManagement.search.MovieSearchCriteria;
+import com.Ashish.Booking.Sytem.MovieManagement.search.MovieSpecification;
 import com.Ashish.Booking.Sytem.exception.MovieNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 
@@ -22,8 +25,22 @@ public class MovieService {
         return movieResponseDto;
     }
 
+    private Movie convertRequestToMovie(MovieRequestDto m){
+        Movie movie = new Movie();
+        movie.setName(m.getName());
+        movie.setDescription(m.getDescription());
+        movie.setLanguage(m.getLanguage());
+        movie.setGenre(m.getGenre());
+        movie.setDuration(m.getDuration());
+        movie.setReleaseDate(m.getReleaseDate());
+        return  movie;
+    }
+
     @Autowired
     private MovieRepo movieRepo;
+
+    @Autowired
+    private MovieSpecification movieSpecification;
 
     public List<MovieResponseDto> getAllMovies() {
         List<Movie> movies = movieRepo.findAll();
@@ -58,13 +75,7 @@ public class MovieService {
     }
 
     public MovieResponseDto saveMovie(MovieRequestDto m) {
-        Movie movie = new Movie();
-        movie.setName(m.getName());
-        movie.setDescription(m.getDescription());
-        movie.setLanguage(m.getLanguage());
-        movie.setGenre(m.getGenre());
-        movie.setDuration(m.getDuration());
-        movie.setReleaseDate(m.getReleaseDate());
+        Movie movie = convertRequestToMovie(m);
         Movie savedMovie = movieRepo.save(movie);
         MovieResponseDto dto = convertToDto(savedMovie);
         return dto;
@@ -97,5 +108,17 @@ public class MovieService {
                 );
 
         movieRepo.deleteById(id);
+    }
+    /// business feature
+    public  List<MovieResponseDto> searchMovies(
+            MovieSearchCriteria criteria){
+        Specification<Movie> specification = MovieSpecification.search(criteria);
+        List<Movie> movies = movieRepo.findAll(specification);
+        List<MovieResponseDto> resp = new ArrayList<>();
+        for(Movie movie : movies){
+            MovieResponseDto dto = convertToDto(movie);
+            resp.add(dto);
+        }
+    return resp;
     }
 }

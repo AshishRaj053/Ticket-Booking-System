@@ -19,7 +19,7 @@ public class BookingController {
     }
 
 
-    @GetMapping
+    @GetMapping("/my")
     public List<BookingResponseDto> getAllBooking(){
         return bookingService.getAllBookingOfOneUser();
     }
@@ -33,4 +33,6 @@ public class BookingController {
     public void cancelBooking(@PathVariable UUID id){
         bookingService.cancelBookingById(id);
     }
+
+
 }

@@ -1,7 +1,9 @@
 package com.Ashish.Booking.Sytem.MovieManagement;
 
+import com.Ashish.Booking.Sytem.MovieManagement.search.MovieSearchCriteria;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -44,5 +46,16 @@ public class MovieController {
     @DeleteMapping("/{id}")
     public void deleteMovie(@PathVariable UUID id){
         movieService.deleteMovieById(id);
+    }
+
+    // business controller
+    @PostMapping("/search")
+    public ResponseEntity<List<MovieResponseDto>> searchMovies(
+            @RequestBody MovieSearchCriteria criteria){
+
+        return ResponseEntity.ok(
+                movieService.searchMovies(criteria)
+        );
+
     }
 }
