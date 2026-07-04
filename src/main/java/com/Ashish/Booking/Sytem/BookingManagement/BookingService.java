@@ -1,5 +1,7 @@
 package com.Ashish.Booking.Sytem.BookingManagement;
 
+import com.Ashish.Booking.Sytem.event.BookingCreatedEvent;
+import com.Ashish.Booking.Sytem.producer.BookingEventProducer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.Ashish.Booking.Sytem.RedisManagement.LockResult;
@@ -54,6 +56,9 @@ public class BookingService {
     @Autowired
     private RedisLockService redisLockService;
 
+    @Autowired
+    private BookingEventProducer bookingEventProducer;
+
     private User getLoggedUser(){
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String email = authentication.getName();
@@ -67,7 +72,7 @@ public class BookingService {
         booking.setUser(getLoggedUser());
         booking.setBookingTime(LocalDateTime.now());
         booking.setShow(showService.getShowById(id));
-        booking.setStatus(BookingStatus.CONFIRMED);
+        booking.setStatus(BookingStatus.PENDING);
         return booking;
     }
 
@@ -211,7 +216,11 @@ public class BookingService {
             // acquire locks
             mapKeyToToken = acquireLocks(showId, seatIds);
             // save the booking
+
             savedBooking = bookingRepo.save(booking);
+
+
+
 
             // save bookedseats
             for(UUID id : seatIds){
@@ -222,7 +231,11 @@ public class BookingService {
                 bookedSeat.setSeat(seatService.getSeatById(id).get());
                 bookedSeatRepo.save(bookedSeat);
             }
-
+            BookingCreatedEvent event = new BookingCreatedEvent();
+            event.setBookingId(savedBooking.getId());
+            event.setUserId(savedBooking.getUser().getId());
+            event.setShowId(savedBooking.getShow().getId());
+            bookingEventProducer.publishBookingCreated(event);
         }
         finally{
             try{
@@ -237,6 +250,17 @@ public class BookingService {
         // return booking response
         BookingResponseDto resp = convertBookingToResponse(savedBooking);
         return resp;
+    }
+    public void confirmBooking(UUID bookingId){
+
+      Booking booking = bookingRepo.findById(bookingId).orElseThrow(()->new BookingNotFoundException("booking not found"));
+        booking.setStatus(BookingStatus.CONFIRMED);
+
+        bookingRepo.save(booking);
+        log.info(
+                "Booking {} confirmed successfully",
+                bookingId
+        );
     }
 
     public List<BookingResponseDto> getAllBookingOfOneUser() {

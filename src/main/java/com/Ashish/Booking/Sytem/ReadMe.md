@@ -895,3 +895,496 @@ Release Redis Locks
 - Used `try-finally` to guarantee lock cleanup.
 - Used TTL as a safety mechanism in case of application failure.
 - Separated Redis coordination from database transactions.
+
+# Chapter 4: Event-Driven Architecture with Apache Kafka
+
+## Overview
+
+After implementing distributed locking with Redis, the booking system successfully prevents multiple users from reserving the same seat simultaneously. However, a real-world movie booking platform performs several independent tasks after a booking is created, such as processing payments, sending notifications, updating analytics, generating recommendations, or rewarding loyalty points. Executing all of these operations synchronously inside the Booking Service tightly couples the application and increases the response time of the booking API.
+
+To solve this problem, the project adopts an **Event-Driven Architecture** using **Apache Kafka**. Instead of directly invoking downstream services, the Booking Service publishes business events to Kafka. Interested services subscribe to these events and execute their responsibilities independently. This makes the system asynchronous, loosely coupled, scalable, and much closer to a production-grade distributed system.
+
+---
+
+## Why Kafka?
+
+Initially, the Booking Service directly communicated with the Payment Service.
+
+```
+Booking Service
+       │
+       ▼
+Payment Service
+```
+
+Although simple, this approach has several drawbacks:
+
+- Booking Service becomes dependent on Payment Service.
+- Every new downstream feature requires modifications inside Booking Service.
+- User response time increases because every operation executes synchronously.
+- Tight coupling makes future microservice migration difficult.
+
+To remove these dependencies, Kafka is introduced as the communication backbone.
+
+```
+Booking Service
+       │
+       ▼
+BookingCreatedEvent
+       │
+   Kafka Topic
+       │
+       ▼
+Payment Service
+```
+
+The Booking Service now only publishes an event and has no knowledge of which services consume it.
+
+---
+
+## Architecture
+
+The booking workflow is divided into independent event-driven components.
+
+```
+                     Booking Service
+                            │
+                            ▼
+                 BookingCreatedEvent
+                            │
+                     booking-created Topic
+                            │
+               ┌────────────┴────────────┐
+               ▼                         ▼
+       Payment Consumer          (Future Consumers)
+               │
+               ▼
+        Payment Service
+               │
+               ▼
+      PaymentCompletedEvent
+               │
+                payment-completed Topic
+               │
+        ┌──────┴──────────────┐
+        ▼                     ▼
+ Booking Consumer     Notification Consumer
+        │                     │
+        ▼                     ▼
+ Booking Service      Notification Service
+```
+
+Each service performs one responsibility and communicates only through business events.
+
+---
+
+## Booking Workflow
+
+The complete booking flow is divided into synchronous and asynchronous stages.
+
+### Stage 1 : Booking Creation
+
+```
+User Books Seats
+        │
+        ▼
+Booking Service
+        │
+        ▼
+Acquire Redis Locks
+        │
+        ▼
+Validate Booking
+        │
+        ▼
+Save Booking (Status = PENDING)
+        │
+        ▼
+Save Booked Seats
+        │
+        ▼
+Publish BookingCreatedEvent
+        │
+        ▼
+Release Redis Locks
+        │
+        ▼
+Return Response
+```
+
+The booking request finishes immediately after publishing the event.
+
+---
+
+### Stage 2 : Payment Processing
+
+```
+BookingCreatedEvent
+        │
+        ▼
+Payment Consumer
+        │
+        ▼
+Payment Service
+        │
+        ▼
+Process Payment
+        │
+        ▼
+Publish PaymentCompletedEvent
+```
+
+Payment processing happens asynchronously without blocking the booking request.
+
+---
+
+### Stage 3 : Booking Confirmation & Notification
+
+```
+PaymentCompletedEvent
+        │
+        ├──────────────► Booking Consumer
+        │                      │
+        │                      ▼
+        │             Confirm Booking
+        │
+        ▼
+Notification Consumer
+        │
+        ▼
+Send Notification
+```
+
+Both services independently react to the same business event.
+
+---
+
+## Business Events
+
+Two business events are introduced.
+
+### BookingCreatedEvent
+
+Represents the creation of a booking request.
+
+Current booking status:
+
+```
+PENDING
+```
+
+Fields:
+
+- bookingId
+- showId
+- userId
+
+This event **does not** indicate successful payment.
+
+---
+
+### PaymentCompletedEvent
+
+Represents successful payment.
+
+Fields:
+
+- bookingId
+- showId
+- userId
+
+Only after this event:
+
+- Booking is confirmed.
+- Notification is sent.
+
+Although both events currently contain identical fields, they represent different business facts and are intentionally kept as separate classes so they can evolve independently in the future.
+
+---
+
+## Kafka Topics
+
+Two dedicated topics are used.
+
+### booking-created
+
+Purpose:
+
+- Notify Payment Service that a booking request has been created.
+
+---
+
+### payment-completed
+
+Purpose:
+
+- Notify downstream services that payment has been completed successfully.
+
+Each topic represents exactly one business event.
+
+---
+
+## Consumer Groups
+
+Different services subscribe to the same event using different consumer groups.
+
+### payment-group
+
+Consumes:
+
+- BookingCreatedEvent
+
+Responsibility:
+
+- Process payment.
+
+---
+
+### booking-group
+
+Consumes:
+
+- PaymentCompletedEvent
+
+Responsibility:
+
+- Confirm booking.
+
+---
+
+### notification-group
+
+Consumes:
+
+- PaymentCompletedEvent
+
+Responsibility:
+
+- Send booking confirmation notification.
+
+Using different consumer groups ensures every service receives its own copy of the event.
+
+---
+
+## Producer Design
+
+Separate producer classes are created for each business event.
+
+### BookingEventProducer
+
+Responsible only for publishing:
+
+```
+BookingCreatedEvent
+```
+
+---
+
+### PaymentEventProducer
+
+Responsible only for publishing:
+
+```
+PaymentCompletedEvent
+```
+
+Each producer has a single responsibility and hides Kafka implementation details from the business services.
+
+---
+
+## Consumer Design
+
+Consumers contain no business logic.
+
+They simply receive events and delegate processing to the corresponding service.
+
+```
+PaymentConsumer
+        │
+        ▼
+PaymentService
+```
+
+```
+BookingConsumer
+        │
+        ▼
+BookingService.confirmBooking()
+```
+
+```
+NotificationConsumer
+        │
+        ▼
+NotificationService
+```
+
+This keeps the architecture clean and follows the Single Responsibility Principle.
+
+---
+
+## Why Notification Listens to PaymentCompletedEvent
+
+Initially, Notification was designed to consume `BookingCreatedEvent`.
+
+However, booking creation does not guarantee successful payment.
+
+```
+Booking Created
+        │
+Payment Failed
+```
+
+Sending a confirmation notification in this situation would be incorrect.
+
+Instead, Notification listens to:
+
+```
+PaymentCompletedEvent
+```
+
+Now the notification is sent only after payment succeeds.
+
+```
+Payment Successful
+        │
+        ▼
+PaymentCompletedEvent
+        │
+        ▼
+Notification Sent
+```
+
+This better reflects the actual business workflow.
+
+---
+
+## Booking Confirmation Through Kafka
+
+Initially, Payment Service directly invoked:
+
+```
+bookingService.confirmBooking()
+```
+
+This tightly coupled the Payment module with the Booking module.
+
+The implementation was improved by introducing another business event.
+
+```
+Payment Service
+        │
+        ▼
+PaymentCompletedEvent
+        │
+        ▼
+Booking Consumer
+        │
+        ▼
+Booking Service
+```
+
+Now Payment Service has no knowledge of Booking Service.
+
+This makes the architecture much closer to a real microservice design.
+
+---
+
+## Event Publishing Strategy
+
+Business events are published **only after** the corresponding business operation completes successfully.
+
+Example:
+
+```
+Payment Started
+        │
+        ▼
+Payment Successful
+        │
+        ▼
+Publish PaymentCompletedEvent
+```
+
+Publishing events only after successful execution ensures downstream services react only to completed business actions.
+
+---
+
+## Design Decisions
+
+The following architectural decisions were intentionally taken during implementation:
+
+- Spring Boot remains the source of truth for all business data.
+- Kafka is used only for communication between independent services.
+- Every business event has its own dedicated Kafka topic.
+- Separate producer classes are created for different event types.
+- Consumer classes contain no business logic.
+- Business logic always remains inside service classes.
+- Booking status changes from **PENDING** to **CONFIRMED** only after receiving **PaymentCompletedEvent**.
+- Notification is triggered only after successful payment.
+- Services communicate through business events instead of direct method calls.
+- Event classes represent business facts rather than database entities.
+
+---
+
+## Advantages of Event-Driven Architecture
+
+Implementing Kafka provides several architectural benefits:
+
+- Loose coupling between modules.
+- Asynchronous processing.
+- Faster API response time.
+- Independent scalability.
+- Easier feature addition.
+- Better separation of responsibilities.
+- Microservice-ready architecture.
+
+Adding a new service requires no modification to the Booking Service.
+
+Example:
+
+```
+BookingCreatedEvent
+        │
+        ├────────► Payment Service
+        ├────────► Analytics Service
+        ├────────► Recommendation Service
+        ├────────► Audit Service
+        └────────► AI Service
+```
+
+Each service independently reacts to the same event.
+
+---
+
+## Future Improvements
+
+A production-grade implementation would additionally include:
+
+- Transactional Outbox Pattern
+- Retry Topics
+- Dead Letter Queue (DLQ)
+- Kafka Transactions
+- Schema Registry (Avro / Protobuf)
+- Distributed Tracing
+- Monitoring & Alerting
+
+These features are intentionally excluded to keep the project focused on demonstrating clean event-driven architecture without introducing unnecessary infrastructure complexity.
+
+---
+
+## Key Learnings
+
+This chapter demonstrates the implementation of:
+
+- Apache Kafka
+- Event-Driven Architecture
+- Producers & Consumers
+- Topics & Consumer Groups
+- Asynchronous Communication
+- Business Event Modeling
+- Loose Coupling
+- Single Responsibility Principle
+- Production-inspired Distributed System Design
+
+The Booking System now follows an event-driven architecture where independent services communicate through business events instead of direct service calls, providing a scalable foundation for future enhancements such as analytics, AI services, recommendation systems, and microservice decomposition.
