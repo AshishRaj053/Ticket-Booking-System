@@ -1388,3 +1388,624 @@ This chapter demonstrates the implementation of:
 - Production-inspired Distributed System Design
 
 The Booking System now follows an event-driven architecture where independent services communicate through business events instead of direct service calls, providing a scalable foundation for future enhancements such as analytics, AI services, recommendation systems, and microservice decomposition.
+
+
+# Dynamic Movie Search using JPA Specifications
+
+## Why was this required?
+
+Initially, the application supported fetching movies only by predefined APIs such as:
+
+- Get Movie by Id
+- Get All Movies
+- Upcoming Movies
+- Now Showing Movies
+- Trending Movies
+
+However, in a real-world movie booking platform like BookMyShow, users expect to search movies using multiple filters simultaneously.
+
+Examples:
+
+- English Action movies
+- Comedy movies under 2 hours
+- Movies released after 2024
+- Action movies in Hindi released after 2023
+
+Creating a separate API or repository method for every combination would quickly become impossible to maintain.
+
+For example:
+
+```
+findByGenre()
+findByLanguage()
+findByGenreAndLanguage()
+findByGenreAndLanguageAndDuration()
+findByGenreAndLanguageAndDurationAndReleaseDate()
+...
+```
+
+The number of methods grows exponentially as new search filters are introduced.
+
+To solve this problem, the project uses **Spring Data JPA Specifications**, allowing dynamic SQL query generation at runtime.
+
+---
+
+## Why POST instead of GET?
+
+Searching movies requires multiple optional parameters.
+
+Instead of exposing a long URL such as:
+
+```
+GET /movies?genre=ACTION&language=English&duration=120&releasedAfter=2024-01-01
+```
+
+the project uses:
+
+```
+POST /api/movies/search
+```
+
+Request Body
+
+```json
+{
+    "genre": "ACTION",
+    "language": "English",
+    "maxDuration": 120,
+    "releasedAfter": "2024-01-01"
+}
+```
+
+Advantages:
+
+- Cleaner API
+- Easier to extend
+- Supports any number of future search filters
+- Avoids very long URLs
+
+---
+
+## Search Criteria DTO
+
+A dedicated DTO was introduced to hold all optional filters.
+
+Current supported filters:
+
+- Movie Name
+- Genre
+- Language
+- Maximum Duration
+- Released After
+
+Every field is optional.
+
+Only the provided fields participate in query generation.
+
+---
+
+## Specification Pattern
+
+Instead of building one large query manually, every filter is implemented as an independent Specification.
+
+Example:
+
+- hasName()
+- hasGenre()
+- hasLanguage()
+- hasMaxDuration()
+- releasedAfter()
+
+Each Specification is responsible for generating only one SQL predicate.
+
+The final query is dynamically composed by combining all applicable Specifications.
+
+This follows the Single Responsibility Principle and keeps every search condition reusable.
+
+---
+
+## Dynamic Query Generation
+
+The search process follows:
+
+```
+Search Request
+
+↓
+
+MovieSearchCriteria
+
+↓
+
+MovieSpecification
+
+↓
+
+Build Required Specifications
+
+↓
+
+Combine using AND
+
+↓
+
+MovieRepository.findAll(specification)
+
+↓
+
+Matching Movies
+```
+
+Only filters provided by the client are included in the SQL query.
+
+Examples:
+
+Input
+
+```json
+{
+    "genre": "ACTION"
+}
+```
+
+Generated SQL (conceptually)
+
+```
+WHERE genre = 'ACTION'
+```
+
+Input
+
+```json
+{
+    "genre": "ACTION",
+    "language": "English"
+}
+```
+
+Generated SQL
+
+```
+WHERE genre = 'ACTION'
+AND language = 'English'
+```
+
+Input
+
+```json
+{
+    "genre": "ACTION",
+    "language": "English",
+    "maxDuration": 120
+}
+```
+
+Generated SQL
+
+```
+WHERE genre = 'ACTION'
+AND language = 'English'
+AND duration <= 120
+```
+
+The query adapts automatically based on the request.
+
+---
+
+## Benefits
+
+- No repository method explosion
+- Easily extensible
+- Reusable Specifications
+- Cleaner business logic
+- Dynamic SQL generation
+- Supports any combination of search filters
+
+---
+
+## Design Decisions
+
+- Used Specifications instead of writing custom JPQL.
+- Every search condition was isolated into its own Specification.
+- Combined Specifications only when the corresponding filter is present.
+- Kept the repository completely generic by extending JpaSpecificationExecutor.
+- Search endpoint accepts a request body to simplify future extensions.
+
+---
+
+## Future Scope
+
+Additional filters can be introduced without changing existing logic.
+
+Examples:
+
+- IMDb Rating
+- Actor
+- Director
+- Production House
+- Age Rating
+- OTT Availability
+- Subtitle Language
+- City-wise Availability
+
+Only a new Specification needs to be added, making the search engine scalable without modifying existing code.
+
+# Redis Caching
+
+## Why Redis?
+
+Movie booking platforms receive significantly more read requests than write requests.
+
+Examples:
+
+- Fetch Movie Details
+- View Upcoming Movies
+- View Trending Movies
+- Browse Shows
+- Theatre Listings
+
+If every request directly queries MySQL, the database becomes the bottleneck under heavy traffic.
+
+Redis was introduced to reduce database load and improve response time by serving frequently accessed data directly from memory.
+
+---
+
+## Redis Use Cases in this Project
+
+Redis is used for two independent purposes.
+
+### 1. Distributed Locking
+
+Implemented during seat booking to prevent concurrent users from booking the same seat simultaneously.
+
+### 2. Distributed Caching
+
+Implemented to cache frequently accessed movie and show data, reducing repetitive database queries.
+
+---
+
+## Caching Strategy
+
+The project follows the **Cache-Aside Pattern**, one of the most commonly used caching strategies.
+
+Workflow:
+
+```
+Client Request
+
+↓
+
+Check Redis
+
+↓
+
+Cache Hit ?
+
+↓
+
+YES ----------------→ Return Cached Response
+
+↓
+
+NO
+
+↓
+
+Query MySQL
+
+↓
+
+Store Result in Redis
+
+↓
+
+Return Response
+```
+
+The application only queries MySQL when the requested data is absent from Redis.
+
+---
+
+## Cache Configuration
+
+Spring Cache abstraction was integrated with Redis.
+
+Features:
+
+- Redis Cache Manager
+- Centralized Cache Configuration
+- Time-To-Live (TTL)
+- JSON Serialization
+- Annotation-based Caching
+
+Caching is enabled globally using:
+
+```
+@EnableCaching
+```
+
+A dedicated RedisCacheManager configures:
+
+- Redis Connection
+- Cache Serialization
+- Default TTL
+- Cache Behaviour
+
+---
+
+## Cache TTL
+
+All cached entries expire automatically after:
+
+```
+10 Minutes
+```
+
+Benefits:
+
+- Prevents stale data from living forever
+- Controls Redis memory usage
+- Automatically refreshes inactive cache entries
+
+---
+
+## Cache Names
+
+Instead of hardcoding cache names throughout the project, all cache names are centralized in:
+
+```
+RedisCacheNames
+```
+
+Current caches:
+
+```
+movies
+upcoming-movies
+now-showing-movies
+trending-movies
+shows
+movie-shows
+theatre-shows
+```
+
+This improves maintainability and prevents naming inconsistencies.
+
+---
+
+## Cached APIs
+
+### Movie Details
+
+```
+GET /api/movies/{id}
+```
+
+Cache Key
+
+```
+movies::<movieId>
+```
+
+---
+
+### Upcoming Movies
+
+```
+POST /api/movies/upcoming
+```
+
+Cache Key
+
+```
+upcoming-movies::<page-size-sort>
+```
+
+---
+
+### Now Showing Movies
+
+```
+POST /api/movies/now-showing
+```
+
+Cache Key
+
+```
+now-showing-movies::<page-size-sort>
+```
+
+---
+
+### Trending Movies
+
+```
+POST /api/movies/trending
+```
+
+Cache Key
+
+```
+trending-movies::<page-size>
+```
+
+---
+
+### Shows By Movie
+
+```
+GET /api/movies/{movieId}/shows
+```
+
+Cache Key
+
+```
+movie-shows::<movieId>
+```
+
+---
+
+### Shows By Theatre
+
+```
+GET /api/theatres/{theatreId}/shows
+```
+
+Cache Key
+
+```
+theatre-shows::<theatreId>
+```
+
+---
+
+### Show Details
+
+```
+GET /api/shows/{showId}
+```
+
+Cache Key
+
+```
+shows::<showId>
+```
+
+---
+
+## Cache Keys
+
+Cache keys are generated using request parameters that affect the response.
+
+Examples:
+
+```
+upcoming-movies::0-20-name-ASC
+
+trending-movies::0-20
+
+movies::<movieId>
+```
+
+Only parameters influencing query results are included in cache keys.
+
+For example, Trending Movies ignores sorting, so sorting fields are intentionally excluded from its cache key.
+
+---
+
+## Cache Eviction
+
+Caching alone is insufficient.
+
+Whenever movie data changes, stale cache entries must be removed.
+
+The project uses:
+
+```
+@CacheEvict
+```
+
+and
+
+```
+@Caching
+```
+
+to invalidate outdated cache entries.
+
+### Movie Creation
+
+Evicts:
+
+- Upcoming Movies
+- Now Showing Movies
+- Trending Movies
+
+Reason:
+
+A newly created movie may immediately appear in these discovery APIs.
+
+---
+
+### Movie Update
+
+Evicts:
+
+- Movie Details
+- Upcoming Movies
+- Trending Movies
+- Now Showing Movies
+- Movie Shows
+- Theatre Shows
+- Show Details
+
+Reason:
+
+Updating movie information can affect multiple cached responses across the application.
+
+---
+
+### Movie Deletion
+
+Uses the same eviction strategy as Movie Update.
+
+Removing a movie invalidates all cached data related to that movie.
+
+---
+
+## APIs Not Cached
+
+Dynamic Movie Search intentionally does **not** use caching.
+
+Reason:
+
+The search API supports arbitrary combinations of filters.
+
+Examples:
+
+- Genre
+- Language
+- Duration
+- Release Date
+- Movie Name
+
+Caching every possible combination would generate an enormous number of cache entries while providing very low cache hit ratios.
+
+This is a deliberate architectural decision to balance Redis memory usage and performance.
+
+---
+
+## Benefits Achieved
+
+- Reduced database load
+- Faster API response times
+- Lower latency
+- Improved scalability
+- Automatic cache invalidation
+- Clean separation between read and write operations
+- Production-style cache management
+
+---
+
+## Design Decisions
+
+- Implemented using Spring Cache abstraction.
+- Centralized cache names in RedisCacheNames.
+- Configured a global RedisCacheManager.
+- Used annotation-based caching for simplicity.
+- Applied cache eviction only to write operations.
+- Cached only read-heavy APIs with high reuse.
+- Avoided caching highly dynamic APIs such as seat availability and movie search.
+
+---
+
+## Future Improvements
+
+Potential enhancements include:
+
+- Cache statistics and monitoring
+- Different TTL values per cache
+- Distributed cache invalidation across microservices
+- Redis Cluster support
+- Cache warming for frequently accessed data
+- Multi-level caching (Application Cache + Redis)

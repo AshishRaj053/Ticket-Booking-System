@@ -1,6 +1,10 @@
 package com.Ashish.Booking.Sytem.MovieManagement;
 
 import com.Ashish.Booking.Sytem.MovieManagement.search.MovieSearchCriteria;
+import com.Ashish.Booking.Sytem.ShowManagement.MovieShowResponseDto;
+import com.Ashish.Booking.Sytem.ShowManagement.ShowService;
+import com.Ashish.Booking.Sytem.common.PageRequestDto;
+import com.Ashish.Booking.Sytem.common.PageResponseDto;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -14,8 +18,15 @@ import java.util.UUID;
 @RequestMapping("/api/movies")
 public class MovieController {
 
-    @Autowired
-    private MovieService movieService;
+    private final ShowService showService;
+    private  final MovieService movieService;
+    public MovieController(
+            MovieService movieService,
+            ShowService showService){
+
+        this.movieService = movieService;
+        this.showService = showService;
+    }
 
 
     // anyone logged in can use them
@@ -51,11 +62,58 @@ public class MovieController {
     // business controller
     @PostMapping("/search")
     public ResponseEntity<List<MovieResponseDto>> searchMovies(
-            @RequestBody MovieSearchCriteria criteria){
+            @RequestBody MovieSearchCriteria criteria) {
 
         return ResponseEntity.ok(
                 movieService.searchMovies(criteria)
         );
+    }
+        @PostMapping("/paged")
+        public ResponseEntity<PageResponseDto<MovieResponseDto>> getAllMoviesPaged(@RequestBody PageRequestDto request){
+
+            return ResponseEntity.ok(
+                    movieService.getAllMoviesPaged(request)
+            );
+        }
+
+    @PostMapping("/upcoming")
+    public ResponseEntity<PageResponseDto<MovieResponseDto>> getUpcomingMovies(
+            @RequestBody PageRequestDto request) {
+        System.out.println("upcoming controller reached");
+        return ResponseEntity.ok(
+                movieService.getUpcomingMovies(request)
+        );
+    }
+
+    @PostMapping("/now-showing")
+    public ResponseEntity<PageResponseDto<MovieResponseDto>>
+    getNowShowingMovies(
+            @RequestBody PageRequestDto request){
+
+        return ResponseEntity.ok(
+                movieService.getNowShowingMovies(request)
+        );
+    }
+
+    @PostMapping("/trending")
+    public ResponseEntity<PageResponseDto<MovieResponseDto>>
+    getTrendingMovies(
+            @RequestBody PageRequestDto request) {
+        System.out.println("controller reached");
+        return ResponseEntity.ok(
+                movieService.getTrendingMovies(request));
 
     }
+
+    @GetMapping("/{movieId}/shows")
+    public ResponseEntity<List<MovieShowResponseDto>>
+    getUpcomingShowsByMovie(
+            @PathVariable UUID movieId){
+
+        return ResponseEntity.ok(
+                showService.getUpcomingShowsByMovie(movieId)
+        );
+    }
+
+
 }

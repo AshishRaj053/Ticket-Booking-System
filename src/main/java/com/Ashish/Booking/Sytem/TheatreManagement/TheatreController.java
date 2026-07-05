@@ -1,7 +1,10 @@
 package com.Ashish.Booking.Sytem.TheatreManagement;
 
+import com.Ashish.Booking.Sytem.ShowManagement.ShowService;
+import com.Ashish.Booking.Sytem.ShowManagement.TheatreShowResponseDto;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
@@ -12,9 +15,18 @@ import java.util.UUID;
 @RequestMapping("/api/theatres")
 public class TheatreController {
 
-    @Autowired
-    private TheatreService theatreService;
 
+    private final TheatreService theatreService;
+
+    private final ShowService showService;
+
+    public TheatreController(
+            TheatreService theatreService,
+            ShowService showService){
+
+        this.theatreService = theatreService;
+        this.showService = showService;
+    }
 
     @GetMapping
     public List<TheatreResponseDto> getAllTheatre(){
@@ -43,5 +55,16 @@ public class TheatreController {
     @DeleteMapping("/{id}")
     public void deleteTheatreById(@PathVariable UUID id){
         theatreService.deleteTheatreById(id);
+    }
+
+    // business feature
+    @GetMapping("/{theatreId}/shows")
+    public ResponseEntity<List<TheatreShowResponseDto>>
+    getUpcomingShowsByTheatre(
+            @PathVariable UUID theatreId){
+
+        return ResponseEntity.ok(
+                showService.getUpcomingShowsByTheatre(theatreId)
+        );
     }
 }

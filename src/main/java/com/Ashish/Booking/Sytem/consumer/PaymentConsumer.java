@@ -1,6 +1,7 @@
 package com.Ashish.Booking.Sytem.consumer;
 
 import com.Ashish.Booking.Sytem.Config.KafkaTopics;
+import com.Ashish.Booking.Sytem.event.BookingCancelledEvent;
 import com.Ashish.Booking.Sytem.event.BookingCreatedEvent;
 import com.Ashish.Booking.Sytem.paymentManagement.PaymentService;
 import org.springframework.kafka.annotation.KafkaListener;
@@ -21,6 +22,15 @@ public class PaymentConsumer {
 
     public void consume(BookingCreatedEvent event){
         paymentService.processPayment(event);
+    }
+
+    @KafkaListener(
+            topics = KafkaTopics.BOOKING_CANCELLED,
+            groupId = "payment-group"
+    )
+
+    public void consumeCancellation(BookingCancelledEvent event){
+        paymentService.refundProcess(event);
     }
 
 

@@ -1,6 +1,8 @@
 package com.Ashish.Booking.Sytem.BookingManagement;
 
+import com.Ashish.Booking.Sytem.event.BookingCancelledEvent;
 import com.Ashish.Booking.Sytem.event.BookingCreatedEvent;
+import com.Ashish.Booking.Sytem.producer.BookingCancelledProducer;
 import com.Ashish.Booking.Sytem.producer.BookingEventProducer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,6 +60,9 @@ public class BookingService {
 
     @Autowired
     private BookingEventProducer bookingEventProducer;
+
+    @Autowired
+    private BookingCancelledProducer bookingCancelledProducer;
 
     private User getLoggedUser(){
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -251,6 +256,7 @@ public class BookingService {
         BookingResponseDto resp = convertBookingToResponse(savedBooking);
         return resp;
     }
+    @Transactional
     public void confirmBooking(UUID bookingId){
 
       Booking booking = bookingRepo.findById(bookingId).orElseThrow(()->new BookingNotFoundException("booking not found"));
@@ -311,6 +317,16 @@ public class BookingService {
         for(UUID seatId : seatIds){
             showSeatService.updateBookedToAvailable(showId,seatId);
         }
+
+        // publish cancellation to the kafka
+        BookingCancelledEvent event =
+                new BookingCancelledEvent(
+                        booking.getId(),
+                        booking.getUser().getId(),
+                        booking.getShow().getId()
+                );
+
+        bookingCancelledProducer.publishBookingCancelled(event);
 
     }
 }

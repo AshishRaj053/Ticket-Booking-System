@@ -1,5 +1,6 @@
 package com.Ashish.Booking.Sytem.NotificationManagement;
 
+import com.Ashish.Booking.Sytem.event.BookingCancelledEvent;
 import com.Ashish.Booking.Sytem.event.PaymentCompletedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,13 @@ public class NotificationService {
                 event.getUserId(),
                 event.getBookingId()
         );
+    }
 
+    public void sendCancellationConfirmation(BookingCancelledEvent event){
+        log.info(
+                "Notification sent to User {} for cancellation {}",
+                event.getUserId(),
+                event.getBookingId()
+        );
     }
 }

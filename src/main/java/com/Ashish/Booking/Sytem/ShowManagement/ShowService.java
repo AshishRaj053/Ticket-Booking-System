@@ -1,5 +1,6 @@
 package com.Ashish.Booking.Sytem.ShowManagement;
 
+import com.Ashish.Booking.Sytem.Config.RedisCacheNames;
 import com.Ashish.Booking.Sytem.MovieManagement.MovieService;
 import com.Ashish.Booking.Sytem.ScreenManagement.ScreenService;
 import com.Ashish.Booking.Sytem.ShowSeatManagement.ShowSeatService;
@@ -8,6 +9,7 @@ import com.Ashish.Booking.Sytem.exception.InvalidShowScheduleException;
 import com.Ashish.Booking.Sytem.exception.ShowNotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -50,6 +52,41 @@ public class ShowService {
         show.setScreen(screenService.getScreenById(dto.getScreenId()));
         show.setMovie(movieService.getMovieById(dto.getMovieId()));
         return show;
+    }
+
+    private TheatreShowResponseDto convertToTheatreShowResponse(
+            Show show){
+
+        TheatreShowResponseDto dto =
+                new TheatreShowResponseDto();
+
+        dto.setShowId(show.getId());
+
+        dto.setMovieId(
+                show.getMovie().getId()
+        );
+
+        dto.setMovieName(
+                show.getMovie().getName()
+        );
+
+        dto.setScreenId(
+                show.getScreen().getId()
+        );
+
+        dto.setScreenName(
+                show.getScreen().getName()
+        );
+
+        dto.setShowDate(
+                show.getShowDate()
+        );
+
+        dto.setStartTime(
+                show.getStartTime()
+        );
+
+        return dto;
     }
 
     private void validateShowScheduleForCreate(ShowRequestDto dto){
@@ -131,6 +168,10 @@ public class ShowService {
         return resp;
     }
 
+    @Cacheable(
+            value = RedisCacheNames.SHOWS,
+            key = "#id"
+    )
     public ShowResponseDto getById(UUID id) {
         Show show = showRepo.findById(id).orElseThrow(()-> new ShowNotFoundException("show not found"));
         ShowResponseDto dto = convertShowToResponse(show);
@@ -173,4 +214,93 @@ public class ShowService {
         Show show = showRepo.findById(id).orElseThrow(()-> new ShowNotFoundException("show not found"));
         showRepo.delete(show);
     }
+
+    @Cacheable(
+            value = RedisCacheNames.MOVIE_SHOWS,
+            key = "#movieId"
+    )
+    public List<MovieShowResponseDto> getUpcomingShowsByMovie(UUID movieId){
+
+        List<Show> shows =
+                showRepo.findUpcomingShowsByMovie(
+                        movieId,
+                        LocalDate.now(),
+                        LocalTime.now()
+                );
+
+        List<MovieShowResponseDto> response =
+                new ArrayList<>();
+
+        for(Show show : shows){
+
+            MovieShowResponseDto dto =
+                    new MovieShowResponseDto();
+
+            dto.setShowId(show.getId());
+
+            dto.setTheatreId(
+                    show.getScreen()
+                            .getTheatre()
+                            .getId()
+            );
+
+            dto.setTheatreName(
+                    show.getScreen()
+                            .getTheatre()
+                            .getName()
+            );
+
+            dto.setScreenId(
+                    show.getScreen()
+                            .getId()
+            );
+
+            dto.setScreenName(
+                    show.getScreen()
+                            .getName()
+            );
+
+            dto.setShowDate(
+                    show.getShowDate()
+            );
+
+            dto.setStartTime(
+                    show.getStartTime()
+            );
+
+            response.add(dto);
+        }
+
+        return response;
+    }
+
+    @Cacheable(
+            value = RedisCacheNames.THEATRE_SHOWS,
+            key = "#theatreId"
+    )
+    public List<TheatreShowResponseDto> getUpcomingShowsByTheatre(
+            UUID theatreId){
+
+        List<Show> shows =
+                showRepo.findUpcomingShowsByTheatre(
+                        theatreId,
+                        LocalDate.now(),
+                        LocalTime.now()
+                );
+
+        List<TheatreShowResponseDto> response =
+                new ArrayList<>();
+
+        for(Show show : shows){
+
+            response.add(
+                    convertToTheatreShowResponse(show)
+            );
+
+        }
+
+        return response;
+    }
+
+
 }

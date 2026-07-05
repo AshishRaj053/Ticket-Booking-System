@@ -26,4 +26,22 @@ public class KafkaTopicConfig {
                 .replicas(1)
                 .build();
     }
+
+    @Bean
+    public NewTopic bookingCancelledTopic(){
+        return TopicBuilder
+                .name(KafkaTopics.BOOKING_CANCELLED)
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
+
+    @Bean
+    public NewTopic refundCompletedTopic(){
+        return TopicBuilder
+                .name(KafkaTopics.REFUND_COMPLETED)
+                .partitions(3)
+                .replicas(1)
+                .build();
+    }
 }
